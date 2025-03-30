@@ -19,12 +19,46 @@ spec:
         image: python:3.9-slim
         command: ["/bin/bash", "-c"]
         args: 
-          - pip install transformers torch; 
-            python3 -c "from transformers import AutoModelForCausalLM, AutoTokenizer; 
-            print('Loading TinyLlama model...');
-            model = AutoModelForCausalLM.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0'); 
-            tokenizer = AutoTokenizer.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0'); 
-            print('TinyLlama model loaded successfully')"
+          - |
+            pip install transformers torch flask gunicorn;
+            cat > app.py << 'EOF'
+            from flask import Flask, request, jsonify
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            import torch
+
+            app = Flask(__name__)
+            print('Loading TinyLlama model...')
+            model = AutoModelForCausalLM.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0')
+            tokenizer = AutoTokenizer.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0')
+            print('TinyLlama model loaded successfully')
+
+            @app.route('/generate', methods=['POST'])
+            def generate():
+                data = request.json
+                prompt = data.get('prompt', '')
+                max_length = data.get('max_length', 50)
+                temperature = data.get('temperature', 1.0)
+
+                inputs = tokenizer(prompt, return_tensors="pt")
+                outputs = model.generate(
+                    inputs["input_ids"],
+                    max_length=max_length,
+                    temperature=temperature,
+                    do_sample=True
+                )
+                response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                return jsonify({"prompt": prompt, "generated_text": response})
+
+            @app.route('/health', methods=['GET'])
+            def health():
+                return jsonify({"status": "healthy"})
+
+            if __name__ == '__main__':
+                app.run(host='0.0.0.0', port=8000)
+            EOF
+            gunicorn --bind 0.0.0.0:8000 app:app
+        ports:
+        - containerPort: 8000
         resources:
           requests:
             cpu: "2"
