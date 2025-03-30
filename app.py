@@ -46,20 +46,9 @@ def generate():
 
 @app.route('/health', methods=['GET'])
 def health():
-    try:
-        # Check if the backend service is healthy
-        response = requests.get(f"{TINYLLAMA_SERVICE_URL}/health", timeout=5)
-        backend_healthy = response.status_code == 200
-        backend_status = response.json() if backend_healthy else {"status": "unhealthy"}
-    except requests.exceptions.RequestException:
-        backend_healthy = False
-        backend_status = {"status": "unreachable"}
-    
     return jsonify({
-        "status": "healthy" if backend_healthy else "degraded",
-        "interface_uptime": time.time() - start_time,
-        "backend_service": TINYLLAMA_SERVICE_URL,
-        "backend_status": backend_status
+        "status": "healthy",
+        "interface_uptime": time.time() - start_time
     })
 
 @app.route('/model-info', methods=['GET'])
