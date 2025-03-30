@@ -39,7 +39,10 @@ spec:
                 max_length = data.get('max_length', 50)
                 temperature = data.get('temperature', 1.0)
 
-                inputs = tokenizer(prompt, return_tensors="pt")
+                # Format for chat
+                chat_prompt = f"<human>: {prompt}\n<assistant>: "
+                
+                inputs = tokenizer(chat_prompt, return_tensors="pt")
                 outputs = model.generate(
                     inputs["input_ids"],
                     max_length=max_length,
@@ -47,6 +50,8 @@ spec:
                     do_sample=True
                 )
                 response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                # Remove the prompt format from response
+                response = response.replace(chat_prompt, "")
                 return jsonify({"prompt": prompt, "generated_text": response})
 
             @app.route('/health', methods=['GET'])
