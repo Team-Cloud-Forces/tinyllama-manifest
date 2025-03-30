@@ -20,92 +20,161 @@ spec:
         command: ["/bin/bash", "-c"]
         args: 
           - |
-            pip install transformers torch flask gunicorn;
+            pip install transformers torch flask gunicorn requests;
             cat > app.py << 'EOF'
             from flask import Flask, request, jsonify
             from transformers import AutoModelForCausalLM, AutoTokenizer
             import torch
+            import logging
+            import sys
+            import os
+            from werkzeug.serving import WSGIRequestHandler
+
+            # Set a higher timeout for Werkzeug's request handling
+            WSGIRequestHandler.timeout = 300
+
+            # Configure logging
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                handlers=[logging.StreamHandler(sys.stdout)]
+            )
+            logger = logging.getLogger('tinyllama')
 
             app = Flask(__name__)
-            # Increase Flask's timeout
-            app.config['TIMEOUT'] = 300  # 5 minutes in seconds
+            app.config['TIMEOUT'] = 300  # 5 minutes
 
-            print('Loading TinyLlama model...')
-            model = AutoModelForCausalLM.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0')
-            tokenizer = AutoTokenizer.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0')
-            print('TinyLlama model loaded successfully')
-
-            # Perform model warmup
-            print("Warming up the model with test inferences...")
-            sample_prompts = [
-                "Hello, how are you?",
-                "What is machine learning?",
-                "Tell me a short story."
-            ]
-            for prompt in sample_prompts:
-                messages = [{"role": "user", "content": prompt}]
-                chat_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                inputs = tokenizer(chat_prompt, return_tensors="pt")
-                model.generate(
-                    inputs["input_ids"],
-                    max_new_tokens=50,
-                    temperature=0.7,
-                    do_sample=True,
-                    top_k=50,
-                    top_p=0.95
+            try:
+                logger.info('=== Starting TinyLlama Initialization ===')
+                logger.info('Loading model and tokenizer...')
+                model = AutoModelForCausalLM.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0')
+                tokenizer = AutoTokenizer.from_pretrained(
+                    'TinyLlama/TinyLlama-1.1B-Chat-v1.0',
+                    padding_side='left'  # Consistent padding
                 )
-            print("Model warmup complete!")
+                
+                # Ensure we have proper padding token
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                    
+                logger.info('Model and tokenizer loaded successfully')
 
-            @app.route('/generate', methods=['POST'])
-            def generate():
-                data = request.json
-                prompt = data.get('prompt', '')
-                max_length = data.get('max_length', 512)
-                temperature = data.get('temperature', 0.7)
-                system_message = data.get('system_message', '')
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                model = model.to(device)
+                logger.info(f'Model moved to device: {device}')
 
-                # Format messages using proper chat template
-                messages = []
-                if system_message:
-                    messages.append({"role": "system", "content": system_message})
-                messages.append({"role": "user", "content": prompt})
-                
-                # Use the tokenizer's chat template
-                chat_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                
-                # Calculate prompt length in tokens
-                prompt_tokens = len(tokenizer(chat_prompt)['input_ids'])
-                
-                # Ensure max_length doesn't exceed context window
-                available_tokens = 2048 - prompt_tokens
-                if max_length > available_tokens:
-                    max_length = available_tokens
-                
-                inputs = tokenizer(chat_prompt, return_tensors="pt")
-                outputs = model.generate(
-                    inputs["input_ids"],
-                    max_new_tokens=max_length,
-                    temperature=temperature,
-                    do_sample=True,
-                    top_k=50,
-                    top_p=0.95,
-                    repetition_penalty=1.1,
-                    pad_token_id=tokenizer.eos_token_id,
-                    eos_token_id=tokenizer.eos_token_id
-                )
-                response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-                # Remove the prompt format from response
-                response = response.replace(chat_prompt, "")
-                return jsonify({"prompt": prompt, "generated_text": response})
+                # Perform model warmup
+                logger.info('=== Starting Model Warmup ===')
+                sample_prompts = [
+                    "Hello, how are you?",
+                    "What is machine learning?",
+                    "Tell me a short story."
+                ]
 
-            @app.route('/health', methods=['GET'])
-            def health():
-                return jsonify({"status": "healthy"})
+                for idx, prompt in enumerate(sample_prompts, 1):
+                    try:
+                        logger.info(f'Warmup iteration {idx}/{len(sample_prompts)}: "{prompt[:30]}..."')
+                        messages = [{"role": "user", "content": prompt}]
+                        chat_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                        
+                        inputs = tokenizer(
+                            chat_prompt,
+                            return_tensors="pt",
+                            padding=True,
+                            truncation=True,
+                            max_length=512
+                        )
+                        
+                        inputs = {k: v.to(device) for k, v in inputs.items()}
+                        
+                        # Generate with shorter length for warmup but same parameters as production
+                        _ = model.generate(
+                            input_ids=inputs["input_ids"],
+                            attention_mask=inputs["attention_mask"],
+                            max_new_tokens=20,  # Shorter for warmup
+                            temperature=0.7,
+                            do_sample=True,
+                            top_k=50,
+                            top_p=0.95,
+                            repetition_penalty=1.1,  # Added back
+                            pad_token_id=tokenizer.pad_token_id,
+                            eos_token_id=tokenizer.eos_token_id
+                        )
+                        logger.info(f'Warmup iteration {idx} completed successfully')
+                    except Exception as e:
+                        logger.error(f'Error in warmup iteration {idx}: {str(e)}', exc_info=True)
+
+                logger.info('=== Model Warmup Complete ===')
+
+                @app.route('/generate', methods=['POST'])
+                def generate():
+                    try:
+                        data = request.json
+                        prompt = data.get('prompt', '')
+                        max_length = min(data.get('max_length', 512), 1024)  # Cap at 1024
+                        temperature = data.get('temperature', 0.7)
+                        system_message = data.get('system_message', '')
+
+                        logger.info(f"Received generation request: {prompt[:100]}...")
+
+                        messages = []
+                        if system_message:
+                            messages.append({"role": "system", "content": system_message})
+                        messages.append({"role": "user", "content": prompt})
+                        
+                        chat_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                        
+                        inputs = tokenizer(
+                            chat_prompt,
+                            return_tensors="pt",
+                            padding=True,
+                            truncation=True,
+                            max_length=512
+                        )
+                        
+                        inputs = {k: v.to(device) for k, v in inputs.items()}
+                        
+                        logger.info("Starting generation...")
+                        outputs = model.generate(
+                            input_ids=inputs["input_ids"],
+                            attention_mask=inputs["attention_mask"],
+                            max_new_tokens=max_length,
+                            temperature=temperature,
+                            do_sample=True,
+                            top_k=50,
+                            top_p=0.95,
+                            repetition_penalty=1.1,
+                            pad_token_id=tokenizer.pad_token_id,
+                            eos_token_id=tokenizer.eos_token_id
+                        )
+                        logger.info("Generation completed")
+                        
+                        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                        response = response.replace(chat_prompt, "")
+                        
+                        logger.info(f"Generated response length: {len(response)}")
+                        return jsonify({"prompt": prompt, "generated_text": response})
+                    
+                    except Exception as e:
+                        logger.error(f"Error in generation: {str(e)}", exc_info=True)
+                        return jsonify({"error": str(e)}), 500
+
+                @app.route('/health', methods=['GET'])
+                def health():
+                    return jsonify({
+                        "status": "healthy",
+                        "model_device": str(device),
+                        "model_loaded": True
+                    })
+
+            except Exception as e:
+                logger.error(f"Critical initialization error: {str(e)}", exc_info=True)
+                sys.exit(1)
 
             if __name__ == '__main__':
                 app.run(host='0.0.0.0', port=8000)
             EOF
-            gunicorn --bind 0.0.0.0:8000 --timeout 300 app:app
+            gunicorn --bind 0.0.0.0:8000 --timeout 300 --workers 1 --threads 4 app:app
         ports:
         - containerPort: 8000
         resources:
@@ -115,6 +184,20 @@ spec:
           limits:
             cpu: "4"
             memory: 8Gi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 5
 ---
 apiVersion: v1
 kind: Service
@@ -127,3 +210,5 @@ spec:
     - protocol: TCP
       port: 8000
       targetPort: 8000
+      nodePort: 31492
+  type: NodePort

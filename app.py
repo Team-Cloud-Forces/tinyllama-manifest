@@ -11,6 +11,9 @@ TINYLLAMA_SERVICE_HOST = os.environ.get("TINYLLAMA_SERVICE_HOST", "tinyllama-ser
 TINYLLAMA_SERVICE_PORT = os.environ.get("TINYLLAMA_SERVICE_PORT", "8000")
 TINYLLAMA_SERVICE_URL = f"http://{TINYLLAMA_SERVICE_HOST}:{TINYLLAMA_SERVICE_PORT}"
 
+# Request timeout configuration
+REQUEST_TIMEOUT = 300  # 5 minutes, matching backend timeout
+
 # Metadata for health checks
 start_time = time.time()
 model_info = {
@@ -28,11 +31,11 @@ def generate():
         return jsonify({"error": "Missing prompt in request"}), 400
     
     try:
-        # Forward the request to the TinyLlama service
+        # Forward the request to the TinyLlama service with increased timeout
         response = requests.post(
             f"{TINYLLAMA_SERVICE_URL}/generate",
             json=data,
-            timeout=30
+            timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
         return jsonify(response.json())
