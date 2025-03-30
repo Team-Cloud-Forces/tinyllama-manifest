@@ -27,6 +27,9 @@ spec:
             import torch
 
             app = Flask(__name__)
+            # Increase Flask's timeout
+            app.config['TIMEOUT'] = 300  # 5 minutes in seconds
+
             print('Loading TinyLlama model...')
             model = AutoModelForCausalLM.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0')
             tokenizer = AutoTokenizer.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0')
@@ -37,10 +40,17 @@ spec:
                 data = request.json
                 prompt = data.get('prompt', '')
                 max_length = data.get('max_length', 512)
-                temperature = data.get('temperature', 1.0)
+                temperature = data.get('temperature', 0.7)
+                system_message = data.get('system_message', '')
 
-                # Format for chat
-                chat_prompt = f"<human>: {prompt}\n<assistant>: "
+                # Format messages using proper chat template
+                messages = []
+                if system_message:
+                    messages.append({"role": "system", "content": system_message})
+                messages.append({"role": "user", "content": prompt})
+                
+                # Use the tokenizer's chat template
+                chat_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                 
                 # Calculate prompt length in tokens
                 prompt_tokens = len(tokenizer(chat_prompt)['input_ids'])
@@ -74,7 +84,7 @@ spec:
             if __name__ == '__main__':
                 app.run(host='0.0.0.0', port=8000)
             EOF
-            gunicorn --bind 0.0.0.0:8000 app:app
+            gunicorn --bind 0.0.0.0:8000 --timeout 300 app:app
         ports:
         - containerPort: 8000
         resources:
