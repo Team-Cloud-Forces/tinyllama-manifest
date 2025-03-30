@@ -16,9 +16,15 @@ spec:
     spec:
       containers:
       - name: tinyllama
-        image: ghcr.io/jmorganca/modelzoo/tinyllama-1.1b-chat:main
-        ports:
-        - containerPort: 8000
+        image: python:3.9-slim
+        command: ["/bin/bash", "-c"]
+        args: 
+          - pip install transformers torch; 
+            python3 -c "from transformers import AutoModelForCausalLM, AutoTokenizer; 
+            print('Loading TinyLlama model...');
+            model = AutoModelForCausalLM.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0'); 
+            tokenizer = AutoTokenizer.from_pretrained('TinyLlama/TinyLlama-1.1B-Chat-v1.0'); 
+            print('TinyLlama model loaded successfully')"
         resources:
           requests:
             cpu: "2"
