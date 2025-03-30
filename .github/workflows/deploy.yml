@@ -1,0 +1,33 @@
+name: Deploy Flask Interface
+on:
+  push:
+    branches:
+      - main  # Or your default branch
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Set up Minikube Docker environment and build image
+        run: |
+          # Set Minikube's Docker daemon for this step
+          eval $(minikube docker-env)
+          
+          # Use the GitHub Actions workspace directory
+          CODE_DIR="${GITHUB_WORKSPACE}"
+          
+          # Delete old image first
+          docker rmi tinyllama-interface:latest || true
+          
+          # Build Docker image from the checked out code in Minikube's Docker environment
+          echo "Building new Docker image..."
+          echo "Using code from: $CODE_DIR"
+          docker build --no-cache -t tinyllama-interface:latest "$CODE_DIR" || { echo "Docker build failed"; exit 1; }
+          docker image prune -f
+          echo "✅ Docker build successful!"
