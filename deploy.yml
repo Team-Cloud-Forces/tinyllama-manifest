@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tinyllama
+  labels:
+    app: tinyllama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tinyllama
+  template:
+    metadata:
+      labels:
+        app: tinyllama
+    spec:
+      containers:
+      - name: tinyllama
+        image: ghcr.io/jmorganca/modelzoo/tinyllama-1.1b-chat:main
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "2"
+            memory: 4Gi
+          limits:
+            cpu: "4"
+            memory: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tinyllama-service
+spec:
+  selector:
+    app: tinyllama
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
