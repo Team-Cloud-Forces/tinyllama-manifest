@@ -4,6 +4,8 @@ import json
 import requests
 from flask import Flask, request, jsonify
 import logging
+from werkzeug.serving import WSGIRequestHandler
+import signal
 
 app = Flask(__name__)
 
@@ -26,6 +28,25 @@ model_info = {
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
+
+class TimeoutMiddleware:
+    def __init__(self, app, timeout):
+        self.app = app
+        self.timeout = timeout
+
+    def __call__(self, environ, start_response):
+        signal.signal(signal.SIGALRM, self.handle_timeout)
+        signal.alarm(self.timeout)
+        try:
+            return self.app(environ, start_response)
+        finally:
+            signal.alarm(0)
+
+    def handle_timeout(self, signum, frame):
+        raise TimeoutError("Request timed out")
+
+# Apply timeout middleware
+app.wsgi_app = TimeoutMiddleware(app.wsgi_app, REQUEST_TIMEOUT)
 
 @app.before_request
 def log_request_info():
@@ -87,5 +108,13 @@ def after_request(response):
     return response
 
 if __name__ == '__main__':
+    # Configure threaded server
+    WSGIRequestHandler.protocol_version = "HTTP/1.1"
     port = int(os.environ.get('PORT', 8000))
-    app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_ENV') == 'development') 
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        threaded=True,  # Enable multi-threading
+        processes=1,
+        debug=os.environ.get('FLASK_ENV') == 'development'
+    ) 
