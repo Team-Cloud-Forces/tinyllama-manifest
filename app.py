@@ -5,7 +5,6 @@ import requests
 from flask import Flask, request, jsonify
 import logging
 from werkzeug.serving import WSGIRequestHandler
-import signal
 
 app = Flask(__name__)
 
@@ -28,25 +27,6 @@ model_info = {
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
-
-class TimeoutMiddleware:
-    def __init__(self, app, timeout):
-        self.app = app
-        self.timeout = timeout
-
-    def __call__(self, environ, start_response):
-        signal.signal(signal.SIGALRM, self.handle_timeout)
-        signal.alarm(self.timeout)
-        try:
-            return self.app(environ, start_response)
-        finally:
-            signal.alarm(0)
-
-    def handle_timeout(self, signum, frame):
-        raise TimeoutError("Request timed out")
-
-# Apply timeout middleware
-app.wsgi_app = TimeoutMiddleware(app.wsgi_app, REQUEST_TIMEOUT)
 
 @app.before_request
 def log_request_info():
