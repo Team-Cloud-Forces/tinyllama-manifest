@@ -79,7 +79,7 @@ spec:
 
                 for idx, prompt in enumerate(sample_prompts, 1):
                     try:
-                        logger.info(f'Warmup iteration {idx}/{len(sample_prompts)}: "{prompt[:30]}..."')
+                        logger.info(f'Warmup iteration {idx}/{len(sample_prompts)}: "{prompt}"')
                         messages = [{"role": "user", "content": prompt}]
                         chat_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                         
@@ -94,18 +94,23 @@ spec:
                         inputs = {k: v.to(device) for k, v in inputs.items()}
                         
                         # Generate with shorter length for warmup but same parameters as production
-                        _ = model.generate(
+                        outputs = model.generate(
                             input_ids=inputs["input_ids"],
                             attention_mask=inputs["attention_mask"],
-                            max_new_tokens=20,  # Shorter for warmup
+                            max_new_tokens=50,  # Increased for visible responses
                             temperature=0.7,
                             do_sample=True,
                             top_k=50,
                             top_p=0.95,
-                            repetition_penalty=1.1,  # Added back
+                            repetition_penalty=1.1,
                             pad_token_id=tokenizer.pad_token_id,
                             eos_token_id=tokenizer.eos_token_id
                         )
+                        
+                        # Decode and log the response
+                        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                        response = response.replace(chat_prompt, "").strip()
+                        logger.info(f'Warmup response {idx}: "{response}"')
                         logger.info(f'Warmup iteration {idx} completed successfully')
                     except Exception as e:
                         logger.error(f'Error in warmup iteration {idx}: {str(e)}', exc_info=True)
@@ -194,17 +199,17 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 1200  # 20 minutes
-          periodSeconds: 30          # Check every 30 seconds after initial delay
-          timeoutSeconds: 10         # Give more time for health check
+          initialDelaySeconds: 300  # 5 minutes
+          periodSeconds: 30         # Check every 30 seconds after initial delay
+          timeoutSeconds: 10        # Give more time for health check
           successThreshold: 1
           failureThreshold: 3
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 1500  # 25 minutes (after readiness)
-          periodSeconds: 60          # Check every minute
+          initialDelaySeconds: 360  # 6 minutes (after readiness)
+          periodSeconds: 60         # Check every minute
           timeoutSeconds: 10
           successThreshold: 1
           failureThreshold: 3
