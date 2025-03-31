@@ -194,18 +194,18 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 60
-          periodSeconds: 10
-          timeoutSeconds: 5
+          initialDelaySeconds: 1200  # 20 minutes
+          periodSeconds: 30          # Check every 30 seconds after initial delay
+          timeoutSeconds: 10         # Give more time for health check
           successThreshold: 1
           failureThreshold: 3
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 120
-          periodSeconds: 30
-          timeoutSeconds: 5
+          initialDelaySeconds: 1500  # 25 minutes (after readiness)
+          periodSeconds: 60          # Check every minute
+          timeoutSeconds: 10
           successThreshold: 1
           failureThreshold: 3
         lifecycle:
