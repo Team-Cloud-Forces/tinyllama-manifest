@@ -3,6 +3,7 @@ import time
 import json
 import requests
 from flask import Flask, request, jsonify
+import logging
 
 app = Flask(__name__)
 
@@ -23,6 +24,14 @@ model_info = {
     "started_at": start_time,
 }
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+
+@app.before_request
+def log_request_info():
+    app.logger.info('Headers: %s', request.headers)
+    app.logger.info('Body: %s', request.get_data())
+
 @app.route('/generate', methods=['POST'])
 def generate():
     data = request.json
@@ -38,6 +47,7 @@ def generate():
             timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
+        app.logger.info('Request processed successfully with status code: %s', response.status_code)
         return jsonify(response.json())
         
     except requests.exceptions.RequestException as e:
@@ -70,6 +80,11 @@ def model_information():
         "interface_type": "proxy",
         "backend_service": TINYLLAMA_SERVICE_URL
     })
+
+@app.after_request
+def after_request(response):
+    app.logger.info('Response status: %s', response.status)
+    return response
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
