@@ -22,7 +22,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
       - name: tinyllama
-        image: tinyllama:latest  # Update this to your image repository
+        image: tinyllama-interface:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
