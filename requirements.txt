@@ -1,7 +1,7 @@
 flask==2.3.3
 requests==2.31.0
 pydantic==2.3.0
-numpy>=2.0.0  # Using NumPy 2.0 as required for proper module compilation
+numpy==2.0.0  # Using NumPy 2.0 as required for proper module compilation
 pybind11>=2.12.0  # Required for NumPy 2.0 compatibility
 torch>=2.2.0  # Updated to newer version for NumPy 2.0 compatibility
 torchvision>=0.17.0  # Matching torch 2.2
