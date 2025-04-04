@@ -108,8 +108,9 @@ def initialize_model():
 
 @app.before_request
 def log_request_info():
-    app.logger.info('Headers: %s', request.headers)
-    app.logger.info('Body: %s', request.get_data())
+    if request.path != '/health':
+        app.logger.info('Headers: %s', request.headers)
+        app.logger.info('Body: %s', request.get_data())
 
 @app.route('/generate', methods=['POST'])
 def generate():
@@ -122,9 +123,9 @@ def generate():
         prompt = data.get('prompt', '')
         max_length = min(data.get('max_length', 512), 1024)  # Cap at 1024
         temperature = data.get('temperature', 0.7)
-        system_message = data.get('system_message', '')
+        system_message = data.get('system_message', 'You are a helpful assistant, try to answer the user and help them while remaining kind and positive.')
 
-        logger.info(f"Received generation request: {prompt[:100]}...")
+        logger.info(f"Received generation request for prompt: {prompt[:100]}...")
 
         messages = []
         if system_message:
@@ -162,6 +163,7 @@ def generate():
         response = response.replace(chat_prompt, "")
         
         logger.info(f"Generated response length: {len(response)}")
+        logger.info(f"Generated response (start): {response[:100]}...")
         return jsonify({"prompt": prompt, "generated_text": response})
         
     except Exception as e:
@@ -191,7 +193,8 @@ def model_information():
 
 @app.after_request
 def after_request(response):
-    app.logger.info('Response status: %s', response.status)
+    if request.path != '/health':
+        app.logger.info('Response status: %s', response.status)
     return response
 
 if __name__ == '__main__':
