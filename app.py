@@ -17,18 +17,18 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
-logger = logging.getLogger('tinyllama')
+logger = logging.getLogger('phi4')
 
 app = Flask(__name__)
 
 # Configuration values
-MODEL_NAME = "microsoft/Phi-3-mini-4k-instruct"
+MODEL_NAME = "microsoft/Phi-4-mini-instruct"
 REQUEST_TIMEOUT = 300  # 5 minutes
 
 # Metadata for health checks
 start_time = time.time()
 
-# Initialize TinyLlama model and tokenizer
+# Initialize Phi-4 model and tokenizer
 model = None
 tokenizer = None
 device = None
@@ -36,12 +36,13 @@ device = None
 def initialize_model():
     global model, tokenizer, device
     try:
-        logger.info('=== Starting Phi-3 Initialization ===')
+        logger.info('=== Starting Phi-4 Initialization ===')
         logger.info('Loading model and tokenizer...')
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_NAME,
             load_in_8bit=True,
-            device_map="auto"
+            device_map="auto",
+            trust_remote_code=True
         )
         tokenizer = AutoTokenizer.from_pretrained(
             MODEL_NAME,
@@ -239,7 +240,7 @@ def after_request(response):
 if __name__ == '__main__':
     # Initialize the model before starting the server
     if not initialize_model():
-        logger.error("Failed to initialize TinyLlama model. Exiting.")
+        logger.error("Failed to initialize Phi-4 model. Exiting.")
         sys.exit(1)
         
     # Configure threaded server
