@@ -73,7 +73,7 @@ def initialize_model():
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
-                    max_length=512
+                    max_length=900
                 )
                 
                 inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -139,7 +139,7 @@ def generate():
             return_tensors="pt",
             padding=True,
             truncation=True,
-            max_length=512
+            max_length=900
         )
         
         inputs = {k: v.to(device) for k, v in inputs.items()}
