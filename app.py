@@ -17,18 +17,18 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
-logger = logging.getLogger('phi4')
+logger = logging.getLogger('phi3')
 
 app = Flask(__name__)
 
 # Configuration values
-MODEL_NAME = "microsoft/Phi-4-mini-instruct"
+MODEL_NAME = "microsoft/Phi-3-mini-4k-instruct"
 REQUEST_TIMEOUT = 300  # 5 minutes
 
 # Metadata for health checks
 start_time = time.time()
 
-# Initialize Phi-4 model and tokenizer
+# Initialize Phi-3 model and tokenizer
 model = None
 tokenizer = None
 device = None
@@ -36,11 +36,11 @@ device = None
 def initialize_model():
     global model, tokenizer, device
     try:
-        logger.info('=== Starting Phi-4 Initialization ===')
+        logger.info('=== Starting Phi-3 Initialization ===')
         logger.info('Loading model and tokenizer...')
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_NAME,
-            # load_in_8bit=True,  # Removed to disable quantization and avoid CUDA requirement
+            # load_in_8bit=True,  # Kept commented out for CPU
             device_map="auto",
             trust_remote_code=True
         )
@@ -78,6 +78,8 @@ def initialize_model():
             try:
                 logger.info(f'Warmup iteration {idx}/{len(sample_prompts)}: "{prompt}"')
                 messages = [{"role": "user", "content": prompt}]
+                # Phi-3 Instruct format uses <|user|> <|end|> <|assistant|> <|end|>
+                # apply_chat_template handles this correctly
                 chat_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                 
                 inputs = tokenizer(
@@ -85,7 +87,7 @@ def initialize_model():
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
-                    max_length=900
+                    max_length=2048 # Reduced max_length for warmup, well within 4k limit
                 )
                 
                 inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -103,15 +105,19 @@ def initialize_model():
                     top_p=0.95,
                     repetition_penalty=1.1,
                     pad_token_id=tokenizer.pad_token_id,
-                    eos_token_id=tokenizer.eos_token_id
+                    eos_token_id=tokenizer.eos_token_id # Phi-3 uses multiple eos tokens, tokenizer handles it
                 )
                 end_gen_time = time.time() # End timing
                 duration = end_gen_time - start_gen_time # Calculate duration
                 logger.info(f"Generation completed in {duration:.2f} seconds") # Log duration
                 
                 # Decode and log the response
+                # Need to handle the prompt potentially being included in the output
                 response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-                response = response.replace(chat_prompt, "").strip()
+                # Remove the prompt part more carefully
+                prompt_tokens = tokenizer(chat_prompt, return_tensors="pt").input_ids.shape[-1]
+                response_tokens = outputs[0][prompt_tokens:]
+                response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
                 logger.info(f'Warmup response {idx}: "{response}"')
                 logger.info(f'Warmup iteration {idx} completed successfully')
             except Exception as e:
@@ -138,14 +144,15 @@ def generate():
     
     try:
         prompt = data.get('prompt', '')
-        max_length = min(data.get('max_length', 512), 1024)  # Cap at 1024
+        max_length = min(data.get('max_length', 512), 2048)  # Cap at 2048, well within 4k limit
         temperature = data.get('temperature', 0.7)
-        system_message = data.get('system_message', 'You are a helpful assistant, try to answer the user and help them while remaining kind and positive.')
+        system_message = data.get('system_message', 'You are a helpful assistant.') # Generic system message
 
         logger.info(f"Received generation request for prompt: {prompt[:100]}...")
 
         messages = []
         if system_message:
+             # Phi-3 instruct format prefers system message first if present
             messages.append({"role": "system", "content": system_message})
         messages.append({"role": "user", "content": prompt})
         
@@ -156,7 +163,7 @@ def generate():
             return_tensors="pt",
             padding=True,
             truncation=True,
-            max_length=900
+            max_length=3000 # Allow more context from user, still safe for 4k limit
         )
         
         inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -173,15 +180,17 @@ def generate():
             top_p=0.95,
             repetition_penalty=1.1,
             pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id
+            eos_token_id=tokenizer.eos_token_id # Use tokenizer's eos_token_id
         )
         end_gen_time = time.time() # End timing
         duration = end_gen_time - start_gen_time # Calculate duration
         logger.info(f"Generation completed in {duration:.2f} seconds") # Log duration
         
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        response = response.replace(chat_prompt, "")
-        
+        # Decode response, removing the prompt part
+        prompt_tokens = inputs.input_ids.shape[-1]
+        response_tokens = outputs[0][prompt_tokens:]
+        response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
+                
         logger.info(f"Generated response length: {len(response)}")
         logger.info(f"Generated response (start): {response[:100]}...")
         return jsonify({"prompt": prompt, "generated_text": response})
@@ -240,7 +249,7 @@ def after_request(response):
 if __name__ == '__main__':
     # Initialize the model before starting the server
     if not initialize_model():
-        logger.error("Failed to initialize Phi-4 model. Exiting.")
+        logger.error("Failed to initialize Phi-3 model. Exiting.")
         sys.exit(1)
         
     # Configure threaded server
