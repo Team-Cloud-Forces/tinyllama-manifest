@@ -9,3 +9,5 @@ torchaudio>=2.2.0  # Matching torch 2.2
 transformers==4.38.1
 huggingface-hub==0.20.3
 gunicorn==21.2.0 
+bitsandbytes
+accelerate 

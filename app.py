@@ -22,7 +22,7 @@ logger = logging.getLogger('tinyllama')
 app = Flask(__name__)
 
 # Configuration values
-MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_NAME = "microsoft/Phi-3-mini-4k-instruct"
 REQUEST_TIMEOUT = 300  # 5 minutes
 
 # Metadata for health checks
@@ -36,9 +36,13 @@ device = None
 def initialize_model():
     global model, tokenizer, device
     try:
-        logger.info('=== Starting TinyLlama Initialization ===')
+        logger.info('=== Starting Phi-3 Initialization ===')
         logger.info('Loading model and tokenizer...')
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_NAME,
+            load_in_8bit=True,
+            device_map="auto"
+        )
         tokenizer = AutoTokenizer.from_pretrained(
             MODEL_NAME,
             padding_side='left'  # Consistent padding
@@ -50,16 +54,23 @@ def initialize_model():
             
         logger.info('Model and tokenizer loaded successfully')
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = model.to(device)
-        logger.info(f'Model moved to device: {device}')
+        # Check actual device placement after device_map
+        try:
+            # Get the device of a parameter tensor to confirm placement
+            actual_device = next(model.parameters()).device
+            logger.info(f'Model is primarily on device: {actual_device}')
+            device = actual_device # Store the determined device
+        except Exception as e:
+            logger.warning(f"Could not precisely determine device placement after device_map: {e}")
+            # Fallback or assume CPU if needed, though device_map should handle it
+            device = torch.device("cpu")
 
         # Perform model warmup
         logger.info('=== Starting Model Warmup ===')
         sample_prompts = [
             "Hello, how are you?",
-            "What is machine learning?",
-            "Tell me a short story."
+            "What is the capital of France?",
+            "Explain the concept of quantization in LLMs."
         ]
 
         for idx, prompt in enumerate(sample_prompts, 1):
@@ -79,6 +90,8 @@ def initialize_model():
                 inputs = {k: v.to(device) for k, v in inputs.items()}
                 
                 # Generate with shorter length for warmup but same parameters as production
+                logger.info("Starting generation...")
+                start_gen_time = time.time() # Start timing
                 outputs = model.generate(
                     input_ids=inputs["input_ids"],
                     attention_mask=inputs["attention_mask"],
@@ -91,6 +104,9 @@ def initialize_model():
                     pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id
                 )
+                end_gen_time = time.time() # End timing
+                duration = end_gen_time - start_gen_time # Calculate duration
+                logger.info(f"Generation completed in {duration:.2f} seconds") # Log duration
                 
                 # Decode and log the response
                 response = tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -145,6 +161,7 @@ def generate():
         inputs = {k: v.to(device) for k, v in inputs.items()}
         
         logger.info("Starting generation...")
+        start_gen_time = time.time() # Start timing
         outputs = model.generate(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
@@ -157,7 +174,9 @@ def generate():
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id
         )
-        logger.info("Generation completed")
+        end_gen_time = time.time() # End timing
+        duration = end_gen_time - start_gen_time # Calculate duration
+        logger.info(f"Generation completed in {duration:.2f} seconds") # Log duration
         
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         response = response.replace(chat_prompt, "")
@@ -175,19 +194,39 @@ def generate():
 
 @app.route('/health', methods=['GET'])
 def health():
+    # Ensure device is captured even if initialization had minor issues reporting it
+    current_device = "unknown"
+    if model:
+        try:
+            current_device = str(next(model.parameters()).device)
+        except:
+            current_device = "error_determining"
+    elif device: # Fallback if model params aren't accessible but device was set
+         current_device = str(device)
+
     return jsonify({
         "status": "healthy",
-        "model_device": str(device) if device else "not_initialized",
+        "model_device": current_device,
         "model_loaded": model is not None,
         "interface_uptime": time.time() - start_time
     })
 
 @app.route('/model-info', methods=['GET'])
 def model_information():
+    # Ensure device is captured even if initialization had minor issues reporting it
+    current_device = "unknown"
+    if model:
+        try:
+            current_device = str(next(model.parameters()).device)
+        except:
+            current_device = "error_determining"
+    elif device: # Fallback if model params aren't accessible but device was set
+         current_device = str(device)
+
     return jsonify({
         "model_name": MODEL_NAME,
         "interface_type": "direct",
-        "model_device": str(device) if device else "not_initialized",
+        "model_device": current_device,
         "started_at": start_time
     })
 
