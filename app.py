@@ -40,7 +40,7 @@ def initialize_model():
         logger.info('Loading model and tokenizer...')
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_NAME,
-            load_in_8bit=True,
+            # load_in_8bit=True,  # Removed to disable quantization and avoid CUDA requirement
             device_map="auto",
             trust_remote_code=True
         )
